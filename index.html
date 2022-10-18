@@ -7,9 +7,13 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
     <script type="text/jsx">
-      function HomePage() 
-      {
+      function HomePage() {
         const names = ['Ada Lovelace', 'Grace Hopper', 'Margaret Hamilton'];
+        const [likes, setLikes] = React.useState(0);
+        
+        function handleClick() {
+          setLikes(likes + 1);
+        }
 
         return (
           <div>
@@ -20,7 +24,7 @@
               ))}
             </ul>
 
-            <button>Like</button>
+            <button onClick={handleClick}>Like({likes})</button>
           </div>
         );
       }
