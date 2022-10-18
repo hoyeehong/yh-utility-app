@@ -8,17 +8,14 @@
     
     <script type="text/jsx">
       
-      function HomePage() {
-        const names = ['Ada Lovelace', 'Grace Hopper', 'Margaret Hamilton'];
+      function Header() {
+        return <h1>Develop. Preview. Ship. 🚀</h1>;
+      }
       
+      function HomePage() {
         return (
           <div>
-            <Header title="Develop. Preview. Ship. 🚀" />
-            <ul>
-              {names.map((name) => (
-                <li>{name}</li>
-              ))}
-            </ul>
+            <Header />
           </div>
         );
       }
