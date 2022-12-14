@@ -6,11 +6,6 @@ function Header({ title }) {
 
 export default function HomePage() {
   
-  // const names = ['Ada Lovelace', 'Grace Hopper', 'Margaret Hamilton'];
-  // const [likes, setLikes] = useState(0);
-  // function handleClick() {
-  //   setLikes(likes + 1);
-  // }
   const [currentMonth, setCurrentMonth] = useState('')
   const [lastMonth, setLastMonth] = useState('')
   const electricitySubTotal = currentMonth-lastMonth
@@ -55,10 +50,6 @@ export default function HomePage() {
 
   return (
     <div>
-<<<<<<< Updated upstream
-      <Header title="Develop. Preview. Ship. 🚀" />
-      <ul>
-=======
       <Header title="Utility Demo App" />
 
       <form onSubmit={handleSubmit}>
@@ -129,15 +120,12 @@ export default function HomePage() {
       
 
       {/* <ul>
->>>>>>> Stashed changes
         {names.map((name) => (
           <li key={name}>{name}</li>
         ))}
       </ul>
       <button onClick={handleClick}>Like ({likes})</button> */}
     </div>
-
-    
   )
 
   function submitForm(currentMonth) {
@@ -155,6 +143,3 @@ export default function HomePage() {
   }
   
 }
-
-
-
