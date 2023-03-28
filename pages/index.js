@@ -72,7 +72,7 @@ export default function HomePage() {
       </label><br></br>
 
       <label>
-        <input value={electricitySubTotal} />{' '}x{' '}<input value="0.2974" />{' '}={' '}<input value={electricityTotal} />
+        <input value={electricitySubTotal} />{' '}x{' '}<input placeholder="0.2895" />{' '}={' '}<input value={electricityTotal} />
       </label>
 
       <label>
