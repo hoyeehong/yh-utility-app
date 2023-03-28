@@ -9,7 +9,8 @@ export default function HomePage() {
   const [currentMonth, setCurrentMonth] = useState('')
   const [lastMonth, setLastMonth] = useState('')
   const electricitySubTotal = currentMonth-lastMonth
-  const electricityTotal = electricitySubTotal*0.2895
+  const [electricityRate, setElectricityRate] = useState('')
+  const electricityTotal = electricitySubTotal*electricityRate
 
   const [waterCurrentMonth, setWaterCurrentMonth] = useState('')
   const [waterLastMonth, setWaterLastMonth] = useState('')
@@ -51,6 +52,10 @@ export default function HomePage() {
     setWaterLastMonth(e.target.value)
   }
 
+  function handleElectricityRate(e) {
+    setElectricityRate(e.target.value)
+  }
+
   function handleWaterTax(e) {
     setWaterTax(e.target.value)
   }
@@ -79,7 +84,9 @@ export default function HomePage() {
       </label><br></br>
 
       <label>
-        <input value={electricitySubTotal} />{' '}x{' '}<input placeholder="0.2895" />{' '}={' '}<input value={electricityTotal} />
+        <input value={electricitySubTotal} />{' '}x{' '}
+        <input placeholder="0.2895" value={electricityRate} onChange={handleElectricityRate}/>{' '}={' '}
+        <input value={electricityTotal} />
       </label>
 
       <label>
