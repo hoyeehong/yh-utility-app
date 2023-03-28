@@ -19,7 +19,10 @@ export default function HomePage() {
   const waterTotal = waterTotal1*0.5
   const waterFinalTotal = waterTotal1+waterTotal2+waterTotal
 
-  const combinedTotal = (electricityTotal+waterFinalTotal+3.86)*1.08
+  const [waterTax, setWaterTax] = useState('')
+  const waterTaxFinalCost = waterTax*0.5
+
+  const combinedTotal = (electricityTotal+waterFinalTotal+waterTaxFinalCost)*1.08
   const combinedFinalTotal = combinedTotal+0.5
 
   async function handleSubmit(e) {
@@ -46,6 +49,10 @@ export default function HomePage() {
   }
   function handleWaterLastMonth(e) {
     setWaterLastMonth(e.target.value)
+  }
+
+  function handleWaterTax(e) {
+    setWaterTax(e.target.value)
   }
 
   return (
@@ -108,10 +115,12 @@ export default function HomePage() {
         <input value={waterTotal1}/>{' '}+{' '}<input value={waterTotal2}/>{' '}+{' '}<input value={waterTotal}/>{' '}={' '}<input value={waterFinalTotal}/>
       </label><br></br>
 
+      <input placeholder="Water Tax" value={waterTax} onChange={handleWaterTax} />{' '}x{' '}<input value="0.5" />{' '}={' '}<input value={waterTaxFinalCost} />
+
       <label>
         <h3>Subtotal</h3>
         <label>
-          (<input value={electricityTotal}/>{' '}+{' '}<input value={waterFinalTotal}/>{' '}+{' '}<input value="3.86"/>){' '}x{' '}<input value="1.08"/>
+          (<input value={electricityTotal}/>{' '}+{' '}<input value={waterFinalTotal}/>{' '}+{' '}<input value={waterTaxFinalCost}/>){' '}x{' '}<input value="1.08"/>
           {' '}={' '}<input value={combinedFinalTotal.toFixed(2)}/>
         </label><br></br>
       </label>
