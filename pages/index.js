@@ -9,7 +9,7 @@ export default function HomePage() {
   const [currentMonth, setCurrentMonth] = useState('')
   const [lastMonth, setLastMonth] = useState('')
   const electricitySubTotal = currentMonth-lastMonth
-  const electricityTotal = electricitySubTotal*0.2974
+  const electricityTotal = electricitySubTotal*0.2895
 
   const [waterCurrentMonth, setWaterCurrentMonth] = useState('')
   const [waterLastMonth, setWaterLastMonth] = useState('')
@@ -19,7 +19,7 @@ export default function HomePage() {
   const waterTotal = waterTotal1*0.5
   const waterFinalTotal = waterTotal1+waterTotal2+waterTotal
 
-  const combinedTotal = (electricityTotal+waterFinalTotal+3.86)*1.07
+  const combinedTotal = (electricityTotal+waterFinalTotal+3.86)*1.08
   const combinedFinalTotal = combinedTotal+0.5
 
   async function handleSubmit(e) {
@@ -111,7 +111,7 @@ export default function HomePage() {
       <label>
         <h3>Subtotal</h3>
         <label>
-          (<input value={electricityTotal}/>{' '}+{' '}<input value={waterFinalTotal}/>{' '}+{' '}<input value="3.86"/>){' '}x{' '}<input value="1.07"/>
+          (<input value={electricityTotal}/>{' '}+{' '}<input value={waterFinalTotal}/>{' '}+{' '}<input value="3.86"/>){' '}x{' '}<input value="1.08"/>
           {' '}={' '}<input value={combinedFinalTotal.toFixed(2)}/>
         </label><br></br>
       </label>
