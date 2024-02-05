@@ -23,7 +23,7 @@ export default function HomePage() {
   const [waterTax, setWaterTax] = useState('')
   const waterTaxFinalCost = waterTax*0.5
 
-  const combinedTotal = (electricityTotal+waterFinalTotal+waterTaxFinalCost)*1.08
+  const combinedTotal = (electricityTotal+waterFinalTotal+waterTaxFinalCost)*1.09
   const combinedFinalTotal = combinedTotal+0.5
 
   async function handleSubmit(e) {
@@ -127,7 +127,7 @@ export default function HomePage() {
       <label>
         <h3>Subtotal</h3>
         <label>
-          (<input value={electricityTotal}/>{' '}+{' '}<input value={waterFinalTotal}/>{' '}+{' '}<input value={waterTaxFinalCost}/>){' '}x{' '}<input value="1.08"/>
+          (<input value={electricityTotal}/>{' '}+{' '}<input value={waterFinalTotal}/>{' '}+{' '}<input value={waterTaxFinalCost}/>){' '}x{' '}<input value="1.09"/>
           {' '}={' '}<input value={combinedFinalTotal.toFixed(2)}/>
         </label><br></br>
       </label>
