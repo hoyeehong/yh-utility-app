@@ -1,161 +1,223 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 function Header({ title }) {
   return <h1>{title ? title : 'Default title'}</h1>;
 }
 
+const formatCurrency = (value) => {
+  if (Number.isNaN(value)) return '';
+  return value.toFixed(2);
+};
+
 export default function HomePage() {
-  
-  const [currentMonth, setCurrentMonth] = useState('')
-  const [lastMonth, setLastMonth] = useState('')
-  const electricitySubTotal = currentMonth-lastMonth
-  const [electricityRate, setElectricityRate] = useState('')
-  const electricityTotal = electricitySubTotal*electricityRate
+  const [status, setStatus] = useState('idle');
+  const [error, setError] = useState(null);
 
-  const [waterCurrentMonth, setWaterCurrentMonth] = useState('')
-  const [waterLastMonth, setWaterLastMonth] = useState('')
-  const waterSubTotal = waterCurrentMonth-waterLastMonth
-  const waterTotal1 = waterSubTotal*1.21
-  const waterTotal2 = waterSubTotal*0.92
-  const waterTotal = waterTotal1*0.5
-  const waterFinalTotal = waterTotal1+waterTotal2+waterTotal
+  const [currentMonth, setCurrentMonth] = useState('');
+  const [lastMonth, setLastMonth] = useState('');
+  const [electricityRate, setElectricityRate] = useState('');
 
-  const [waterTax, setWaterTax] = useState('')
-  const waterTaxFinalCost = waterTax*0.5
+  const [waterCurrentMonth, setWaterCurrentMonth] = useState('');
+  const [waterLastMonth, setWaterLastMonth] = useState('');
+  const [waterTax, setWaterTax] = useState('');
 
-  const combinedTotal = (electricityTotal+waterFinalTotal+waterTaxFinalCost)*1.09
-  const combinedFinalTotal = combinedTotal+0.5
+  const electricityUsage = useMemo(
+    () => Number(currentMonth || 0) - Number(lastMonth || 0),
+    [currentMonth, lastMonth]
+  );
 
-  async function handleSubmit(e) {
-    e.preventDefault()
-    setStatus('submitting')
+  const electricityTotal = useMemo(
+    () => electricityUsage * Number(electricityRate || 0),
+    [electricityUsage, electricityRate]
+  );
+
+  const waterUsage = useMemo(
+    () => Number(waterCurrentMonth || 0) - Number(waterLastMonth || 0),
+    [waterCurrentMonth, waterLastMonth]
+  );
+  const waterMultiplierOne = useMemo(() => waterUsage * 1.21, [waterUsage]);
+  const waterMultiplierTwo = useMemo(() => waterUsage * 0.92, [waterUsage]);
+  const waterMultiplierThree = useMemo(
+    () => waterMultiplierOne * 0.5,
+    [waterMultiplierOne]
+  );
+  const waterFinalTotal = useMemo(
+    () => waterMultiplierOne + waterMultiplierTwo + waterMultiplierThree,
+    [waterMultiplierOne, waterMultiplierTwo, waterMultiplierThree]
+  );
+
+  const waterTaxFinalCost = useMemo(
+    () => Number(waterTax || 0) * 0.5,
+    [waterTax]
+  );
+
+  const combinedTotal = useMemo(
+    () =>
+      (electricityTotal + waterFinalTotal + waterTaxFinalCost) * 1.09 + 0.5,
+    [electricityTotal, waterFinalTotal, waterTaxFinalCost]
+  );
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setStatus('submitting');
+    setError(null);
     try {
-      //await submitForm(currentMonth)
-      setStatus('success')
+      await submitForm(currentMonth);
+      setStatus('success');
     } catch (err) {
-      setStatus('typing')
-      setError(err)
+      setStatus('typing');
+      setError(err.message || 'Something went wrong');
     }
   }
 
-  function handleCurrentMonth(e) {
-    setCurrentMonth(e.target.value)
-  }
-  function handleLastMonth(e) {
-    setLastMonth(e.target.value)
-  }
-
-  function handleWaterCurrentMonth(e) {
-    setWaterCurrentMonth(e.target.value)
-  }
-  function handleWaterLastMonth(e) {
-    setWaterLastMonth(e.target.value)
-  }
-
-  function handleElectricityRate(e) {
-    setElectricityRate(e.target.value)
-  }
-
-  function handleWaterTax(e) {
-    setWaterTax(e.target.value)
-  }
+  const inputProps = {
+    type: 'number',
+    step: '0.01',
+    inputMode: 'decimal',
+    min: '0',
+  };
 
   return (
     <div>
       <Header title="Utility Demo App" />
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '1rem' }}>
+        <fieldset>
+          <legend>Electricity</legend>
+          <div style={{ display: 'grid', gap: '0.5rem' }}>
+            <label>
+              <span>Current month reading</span>
+              <input
+                {...inputProps}
+                placeholder="0"
+                value={currentMonth}
+                onChange={(e) => setCurrentMonth(e.target.value)}
+                aria-label="Current month electricity reading"
+              />
+            </label>
+            <label>
+              <span>Last month reading</span>
+              <input
+                {...inputProps}
+                placeholder="0"
+                value={lastMonth}
+                onChange={(e) => setLastMonth(e.target.value)}
+                aria-label="Last month electricity reading"
+              />
+            </label>
+            <div>
+              <strong>Usage:</strong>{' '}
+              <output aria-live="polite">{formatCurrency(electricityUsage)}</output>
+            </div>
+            <label>
+              <span>Rate</span>
+              <input
+                {...inputProps}
+                placeholder="0.2895"
+                value={electricityRate}
+                onChange={(e) => setElectricityRate(e.target.value)}
+                aria-label="Electricity rate"
+              />
+            </label>
+            <div>
+              <strong>Total:</strong>{' '}
+              <output aria-live="polite">{formatCurrency(electricityTotal)}</output>
+            </div>
+          </div>
+        </fieldset>
 
-      <label>
-        <h3>Electricity</h3>
-        <input
-          placeholder="Current month"
-          value={currentMonth}
-          onChange={handleCurrentMonth}
-        />
-        {' '}-{' '}
-        <input
-          placeholder="Last month"
-          value={lastMonth}
-          onChange={handleLastMonth}
-        />
-        {' '}={' '}
-        <input value={electricitySubTotal} />
-      </label><br></br>
+        <fieldset>
+          <legend>Water</legend>
+          <div style={{ display: 'grid', gap: '0.5rem' }}>
+            <label>
+              <span>Current month reading</span>
+              <input
+                {...inputProps}
+                placeholder="0"
+                value={waterCurrentMonth}
+                onChange={(e) => setWaterCurrentMonth(e.target.value)}
+                aria-label="Current month water reading"
+              />
+            </label>
+            <label>
+              <span>Last month reading</span>
+              <input
+                {...inputProps}
+                placeholder="0"
+                value={waterLastMonth}
+                onChange={(e) => setWaterLastMonth(e.target.value)}
+                aria-label="Last month water reading"
+              />
+            </label>
+            <div>
+              <strong>Usage:</strong>{' '}
+              <output aria-live="polite">{formatCurrency(waterUsage)}</output>
+            </div>
+            <div>
+              <strong>Multiplier 1 (x1.21):</strong>{' '}
+              <output aria-live="polite">{formatCurrency(waterMultiplierOne)}</output>
+            </div>
+            <div>
+              <strong>Multiplier 2 (x0.92):</strong>{' '}
+              <output aria-live="polite">{formatCurrency(waterMultiplierTwo)}</output>
+            </div>
+            <div>
+              <strong>Multiplier 3 (x0.5 of 1.21):</strong>{' '}
+              <output aria-live="polite">{formatCurrency(waterMultiplierThree)}</output>
+            </div>
+            <div>
+              <strong>Water total:</strong>{' '}
+              <output aria-live="polite">{formatCurrency(waterFinalTotal)}</output>
+            </div>
+            <label>
+              <span>Water tax base</span>
+              <input
+                {...inputProps}
+                placeholder="0"
+                value={waterTax}
+                onChange={(e) => setWaterTax(e.target.value)}
+                aria-label="Water tax input"
+              />
+            </label>
+            <div>
+              <strong>Water tax (x0.5):</strong>{' '}
+              <output aria-live="polite">{formatCurrency(waterTaxFinalCost)}</output>
+            </div>
+          </div>
+        </fieldset>
 
-      <label>
-        <input value={electricitySubTotal} />{' '}x{' '}
-        <input placeholder="0.2895" value={electricityRate} onChange={handleElectricityRate}/>{' '}={' '}
-        <input value={electricityTotal} />
-      </label>
-
-      <label>
-        <h3>Water</h3>
-        <input
-          placeholder="Current month"
-          value={waterCurrentMonth}
-          onChange={handleWaterCurrentMonth}
-        />
-        {' '}-{' '}
-        <input
-          placeholder="Last month"
-          value={waterLastMonth}
-          onChange={handleWaterLastMonth}
-        />
-        {' '}={' '}
-        <input value={waterSubTotal} />
-      </label><br></br>
-
-      <label>
-        <input value={waterSubTotal} />{' '}x{' '}<input value="1.21" />{' '}={' '}<input value={waterTotal1} />
-      </label><br></br>
-
-      <label>
-        <input value={waterSubTotal} />{' '}x{' '}<input value="0.92" />{' '}={' '}<input value={waterTotal2} />
-      </label><br></br>
-
-      <label>
-        <input value={waterTotal1} />{' '}x{' '}<input value="0.5" />{' '}={' '}<input value={waterTotal} />
-      </label><br></br>
-
-      <label>
-        <input value={waterTotal1}/>{' '}+{' '}<input value={waterTotal2}/>{' '}+{' '}<input value={waterTotal}/>{' '}={' '}<input value={waterFinalTotal}/>
-      </label><br></br>
-
-      <input placeholder="Water Tax" value={waterTax} onChange={handleWaterTax} />{' '}x{' '}<input value="0.5" />{' '}={' '}<input value={waterTaxFinalCost} />
-
-      <label>
-        <h3>Subtotal</h3>
-        <label>
-          (<input value={electricityTotal}/>{' '}+{' '}<input value={waterFinalTotal}/>{' '}+{' '}<input value={waterTaxFinalCost}/>){' '}x{' '}<input value="1.09"/>
-          {' '}={' '}<input value={combinedFinalTotal.toFixed(2)}/>
-        </label><br></br>
-      </label>
-
+        <fieldset>
+          <legend>Subtotal</legend>
+          <div style={{ display: 'grid', gap: '0.5rem' }}>
+            <div>
+              <strong>Combined total (with 9% + 0.5):</strong>{' '}
+              <output aria-live="polite">{formatCurrency(combinedTotal)}</output>
+            </div>
+            <button type="submit" disabled={status === 'submitting'}>
+              {status === 'submitting' ? 'Calculating…' : 'Save calculation'}
+            </button>
+            {status === 'success' && <p role="status">Saved!</p>}
+            {error && (
+              <p role="alert" style={{ color: 'red' }}>
+                {error}
+              </p>
+            )}
+          </div>
+        </fieldset>
       </form>
-      
-
-      {/* <ul>
-        {names.map((name) => (
-          <li key={name}>{name}</li>
-        ))}
-      </ul>
-      <button onClick={handleClick}>Like ({likes})</button> */}
     </div>
-  )
+  );
 
-  function submitForm(currentMonth) {
-    // Pretend it's hitting the network.
+  function submitForm(value) {
     return new Promise((resolve, reject) => {
       setTimeout(() => {
-        let shouldError = answer.toLowerCase() !== 'lima'
+        const shouldError = Number(value || 0) <= 0;
         if (shouldError) {
-          reject(new Error('Good guess but a wrong answer. Try again!'));
+          reject(new Error('Enter a current month reading greater than 0.'));
         } else {
           resolve();
         }
-      }, 1500);
-    })
+      }, 500);
+    });
   }
-  
 }
