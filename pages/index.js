@@ -53,7 +53,7 @@ export default function HomePage() {
 
   const combinedTotal = useMemo(
     () =>
-      (electricityTotal + waterFinalTotal + waterTaxFinalCost) * 1.09 + 0.5,
+      (electricityTotal + waterFinalTotal + waterTaxFinalCost) * 1.09,
     [electricityTotal, waterFinalTotal, waterTaxFinalCost]
   );
 
