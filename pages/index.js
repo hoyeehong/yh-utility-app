@@ -190,7 +190,7 @@ export default function HomePage() {
           <legend>Subtotal</legend>
           <div style={{ display: 'grid', gap: '0.5rem' }}>
             <div>
-              <strong>Combined total (with 9% + 0.5):</strong>{' '}
+              <strong>Combined total (with 9%):</strong>{' '}
               <output aria-live="polite">{formatCurrency(combinedTotal)}</output>
             </div>
             <button type="submit" disabled={status === 'submitting'}>
