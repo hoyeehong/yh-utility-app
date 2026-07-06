@@ -1,0 +1,8 @@
+{
+  "firestore": {
+    "databaseId": "ai-studio-yhutilityapp-7c081442-4912-4352-9ae5-a763f0940395",
+    "rules": "firestore.rules",
+    "edition": "ENTERPRISE",
+    "dataAccessMode": "FIRESTORE_NATIVE"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "collections": {
+    "calculations": {
+      "document": {
+        "userId": "string",
+        "createdAt": "timestamp",
+        "currentMonth": "string",
+        "electricity": {
+          "currentReading": "number",
+          "lastReading": "number",
+          "usage": "number",
+          "rate": "number",
+          "total": "number"
+        },
+        "water": {
+          "currentReading": "number",
+          "lastReading": "number",
+          "usage": "number",
+          "multiplierOne": "number",
+          "multiplierTwo": "number",
+          "multiplierThree": "number",
+          "taxBase": "number",
+          "taxFinalCost": "number",
+          "total": "number"
+        },
+        "combinedTotal": "number"
+      }
+    },
+    "users": {
+      "document": {
+        "uid": "string",
+        "email": "string",
+        "displayName": "string",
+        "lastActive": "timestamp"
+      }
+    }
+  }
+}
