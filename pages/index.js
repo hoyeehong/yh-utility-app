@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { 
   auth, 
   googleProvider, 
@@ -62,6 +62,10 @@ export default function HomePage() {
   const [waterLastMonth, setWaterLastMonth] = useState('');
   const [waterTax, setWaterTax] = useState('');
 
+  // Dynamic Tariff State
+  const [tariffInfo, setTariffInfo] = useState(null);
+  const [tariffLoading, setTariffLoading] = useState(false);
+
   // Calculations
   const electricityUsage = useMemo(
     () => Number(currentMonth || 0) - Number(lastMonth || 0),
@@ -112,6 +116,27 @@ export default function HomePage() {
     });
     return () => unsubscribe();
   }, []);
+
+  const fetchLatestTariff = useCallback(async (autoFill = false) => {
+    setTariffLoading(true);
+    try {
+      const res = await fetch('/api/tariff');
+      if (res.ok) {
+        const data = await res.json();
+        setTariffInfo(data);
+        setElectricityRate((prev) => (!autoFill || !prev ? data.rate.toString() : prev));
+      }
+    } catch (err) {
+      console.error('Failed to fetch tariff:', err);
+    } finally {
+      setTariffLoading(false);
+    }
+  }, []);
+
+  // Fetch latest quarterly Singapore electricity tariff on mount
+  useEffect(() => {
+    fetchLatestTariff(true);
+  }, [fetchLatestTariff]);
 
   const fetchHistory = async (userId) => {
     setHistoryLoading(true);
@@ -608,6 +633,44 @@ export default function HomePage() {
           color: #64748b;
           font-size: 0.9rem;
         }
+        .btn-tariff {
+          background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+          color: #1e293b;
+          border: none;
+          border-radius: 6px;
+          padding: 0.35rem 0.7rem;
+          font-size: 0.75rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 1px 2px rgba(245, 158, 11, 0.2);
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+        }
+        .btn-tariff:hover:not(:disabled) {
+          background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+          transform: translateY(-1px);
+          box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);
+        }
+        .btn-tariff:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none;
+        }
+        .tariff-badge {
+          margin-top: 0.4rem;
+          font-size: 0.75rem;
+          color: #0369a1;
+          background-color: #e0f2fe;
+          border: 1px solid #bae6fd;
+          padding: 0.4rem 0.6rem;
+          border-radius: 6px;
+          line-height: 1.4;
+          display: flex;
+          align-items: center;
+          gap: 0.35rem;
+        }
       `}} />
 
       <Header title="Utility Bill Calculator" subtitle="Compute and save your electricity and water usage" />
@@ -700,15 +763,31 @@ export default function HomePage() {
             </div>
 
             <div className="form-group">
-              <label htmlFor="elec-rate">Rate</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.375rem' }}>
+                <label htmlFor="elec-rate" style={{ margin: 0 }}>Rate ($/kWh)</label>
+                <button
+                  type="button"
+                  onClick={() => fetchLatestTariff(true)}
+                  disabled={tariffLoading}
+                  className="btn-tariff"
+                  title="Retrieve latest SP Group regulated quarterly tariff"
+                >
+                  {tariffLoading ? '⚡ Fetching...' : tariffInfo ? `⚡ Use ${tariffInfo.quarter} Rate ($${tariffInfo.rate})` : '⚡ Get Latest SP Tariff'}
+                </button>
+              </div>
               <input
                 {...inputProps}
                 id="elec-rate"
-                placeholder="0.2895"
+                placeholder="0.3191"
                 value={electricityRate}
                 onChange={handleInputChange(setElectricityRate)}
                 aria-label="Electricity rate"
               />
+              {tariffInfo && (
+                <div className="tariff-badge">
+                  <span>ℹ️ Official Regulated Rate: <strong>${tariffInfo.rate}/kWh</strong> ({tariffInfo.centsPerKwh}¢) for {tariffInfo.quarter}</span>
+                </div>
+              )}
             </div>
 
             <div className="summary-section">
