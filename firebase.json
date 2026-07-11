@@ -4,5 +4,14 @@
     "rules": "firestore.rules",
     "edition": "ENTERPRISE",
     "dataAccessMode": "FIRESTORE_NATIVE"
+  },
+  "auth": {
+    "authorizedDomains": [
+      "localhost",
+      "tangential-discipline-wqmt3.firebaseapp.com",
+      "tangential-discipline-wqmt3.web.app",
+      "hoyeehong.github.io",
+      "yh-utility-app.vercel.app"
+    ]
   }
 }
