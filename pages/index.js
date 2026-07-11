@@ -177,11 +177,9 @@ export default function HomePage() {
 
   const loadHistoryEntry = (item) => {
     setBillingMonth(item.billingMonth || '');
-    setCurrentMonth(item.electricity?.currentReading?.toString() || '');
-    setLastMonth(item.electricity?.lastReading?.toString() || '');
+    setLastMonth(item.electricity?.currentReading?.toString() || '');
     setElectricityRate(item.electricity?.rate?.toString() || '');
-    setWaterCurrentMonth(item.water?.currentReading?.toString() || '');
-    setWaterLastMonth(item.water?.lastReading?.toString() || '');
+    setWaterLastMonth(item.water?.currentReading?.toString() || '');
     setWaterTax(item.water?.taxBase?.toString() || '');
     setStatus('idle');
     setError(null);
@@ -907,7 +905,7 @@ export default function HomePage() {
           <h2 className="card-title" style={{ borderBottom: 'none', marginBottom: '0.5rem' }}>Calculation Summary</h2>
           
           <div className="summary-row grand-total">
-            <span>Combined Total (with 9% tax):</span>
+            <span>Combined Total (with GST 9%):</span>
             <span>${formatCurrency(combinedTotal)}</span>
           </div>
 
@@ -975,7 +973,7 @@ export default function HomePage() {
                       <strong>${formatCurrency((item.water?.total || 0) + (item.water?.taxFinalCost || 0))}</strong>
                     </div>
                     <div className="history-detail-col">
-                      <span>Combined Total:</span>
+                      <span>Combined Total (with GST 9%):</span>
                       <strong className="text-blue">${formatCurrency(item.combinedTotal || 0)}</strong>
                     </div>
                   </div>
