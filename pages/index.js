@@ -103,21 +103,7 @@ export default function HomePage() {
     [electricityTotal, waterFinalTotal, waterTaxFinalCost]
   );
 
-  // Track Firebase Auth Changes & Load Cloud/Local History
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      setAuthLoading(false);
-      if (currentUser) {
-        await fetchCloudHistory(currentUser.uid);
-      } else {
-        loadLocalHistory();
-      }
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const loadLocalHistory = () => {
+  const loadLocalHistory = useCallback(() => {
     setHistoryLoading(true);
     try {
       const saved = localStorage.getItem('utility_calculations_v1');
@@ -131,9 +117,13 @@ export default function HomePage() {
     } finally {
       setHistoryLoading(false);
     }
-  };
+  }, []);
 
-  const fetchCloudHistory = async (userId) => {
+  const fetchCloudHistory = useCallback(async (userId) => {
+    if (!db) {
+      loadLocalHistory();
+      return;
+    }
     setHistoryLoading(true);
     try {
       const q = query(
@@ -154,7 +144,26 @@ export default function HomePage() {
     } finally {
       setHistoryLoading(false);
     }
-  };
+  }, [loadLocalHistory]);
+
+  // Track Firebase Auth Changes & Load Cloud/Local History
+  useEffect(() => {
+    if (!auth) {
+      setAuthLoading(false);
+      loadLocalHistory();
+      return;
+    }
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      setAuthLoading(false);
+      if (currentUser) {
+        await fetchCloudHistory(currentUser.uid);
+      } else {
+        loadLocalHistory();
+      }
+    });
+    return () => unsubscribe();
+  }, [fetchCloudHistory, loadLocalHistory]);
 
   const saveToLocalStorage = (newHistory) => {
     try {
@@ -240,6 +249,10 @@ export default function HomePage() {
   }, [fetchLatestTariff]);
 
   const handleSignIn = async () => {
+    if (!auth) {
+      setError('Firebase Sign-In requires your Vercel Environment Variables (NEXT_PUBLIC_FIREBASE_API_KEY, etc.) to be configured.');
+      return;
+    }
     setError(null);
     try {
       await signInWithPopup(auth, googleProvider);
@@ -255,6 +268,7 @@ export default function HomePage() {
   };
 
   const handleSignOut = async () => {
+    if (!auth) return;
     setError(null);
     try {
       await signOut(auth);
@@ -265,7 +279,7 @@ export default function HomePage() {
 
   const deleteHistoryEntry = async (id) => {
     try {
-      if (user) {
+      if (user && db) {
         await deleteDoc(doc(db, 'calculations', id));
       }
       const updatedHistory = history.filter((item) => item.id !== id);
@@ -327,7 +341,7 @@ export default function HomePage() {
         combinedTotal: combinedTotal
       };
 
-      if (user) {
+      if (user && db) {
         const docRef = await addDoc(collection(db, 'calculations'), calculationData);
         setHistory((prev) => [
           {
