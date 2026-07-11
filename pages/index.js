@@ -1,4 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { 
+  auth, 
+  googleProvider, 
+  db, 
+  signInWithPopup, 
+  signOut 
+} from '../lib/firebase';
+import { 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { 
+  collection, 
+  addDoc, 
+  query, 
+  where, 
+  orderBy, 
+  getDocs, 
+  deleteDoc, 
+  doc, 
+  serverTimestamp 
+} from 'firebase/firestore';
 
 function Header({ title, subtitle }) {
   return (
@@ -19,7 +40,9 @@ export default function HomePage() {
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
 
-  // LocalStorage History State
+  // Dual Auth (Firebase Cloud SSO) and History State
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
@@ -80,19 +103,58 @@ export default function HomePage() {
     [electricityTotal, waterFinalTotal, waterTaxFinalCost]
   );
 
-  // Load LocalStorage History on mount
+  // Track Firebase Auth Changes & Load Cloud/Local History
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      setAuthLoading(false);
+      if (currentUser) {
+        await fetchCloudHistory(currentUser.uid);
+      } else {
+        loadLocalHistory();
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const loadLocalHistory = () => {
+    setHistoryLoading(true);
     try {
       const saved = localStorage.getItem('utility_calculations_v1');
       if (saved) {
         setHistory(JSON.parse(saved));
+      } else {
+        setHistory([]);
       }
     } catch (err) {
       console.error('Failed to load local history:', err);
     } finally {
       setHistoryLoading(false);
     }
-  }, []);
+  };
+
+  const fetchCloudHistory = async (userId) => {
+    setHistoryLoading(true);
+    try {
+      const q = query(
+        collection(db, 'calculations'),
+        where('userId', '==', userId),
+        orderBy('createdAt', 'desc')
+      );
+      const querySnapshot = await getDocs(q);
+      const records = [];
+      querySnapshot.forEach((docSnap) => {
+        records.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      setHistory(records);
+    } catch (err) {
+      console.error('Error fetching cloud history:', err);
+      // If Firestore fails, fallback gracefully to local storage
+      loadLocalHistory();
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   const saveToLocalStorage = (newHistory) => {
     try {
@@ -103,8 +165,20 @@ export default function HomePage() {
     }
   };
 
-  const clearAllHistory = () => {
-    if (window.confirm('Are you sure you want to delete all saved calculation history from this device?')) {
+  const clearAllHistory = async () => {
+    const msg = user 
+      ? 'Are you sure you want to delete all saved calculation history from your cloud account and device?'
+      : 'Are you sure you want to delete all saved calculation history from this device?';
+    if (window.confirm(msg)) {
+      if (user) {
+        try {
+          for (const item of history) {
+            await deleteDoc(doc(db, 'calculations', item.id)).catch(() => {});
+          }
+        } catch (e) {
+          console.error('Error clearing cloud records:', e);
+        }
+      }
       saveToLocalStorage([]);
     }
   };
@@ -165,10 +239,41 @@ export default function HomePage() {
     fetchLatestTariff(true);
   }, [fetchLatestTariff]);
 
-  const deleteHistoryEntry = (id) => {
+  const handleSignIn = async () => {
+    setError(null);
     try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (err) {
+      if (err.code === 'auth/unauthorized-domain') {
+        setError('Google Sign-In blocked: Domain not authorized. To fix this instantly, add your Vercel domain (yh-utility-app.vercel.app) to your Firebase Console -> Authentication -> Settings -> Authorized Domains.');
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        // Closed popup peacefully
+      } else {
+        setError(err.message || 'Failed to sign in with Google');
+      }
+    }
+  };
+
+  const handleSignOut = async () => {
+    setError(null);
+    try {
+      await signOut(auth);
+    } catch (err) {
+      setError(err.message || 'Failed to sign out');
+    }
+  };
+
+  const deleteHistoryEntry = async (id) => {
+    try {
+      if (user) {
+        await deleteDoc(doc(db, 'calculations', id));
+      }
       const updatedHistory = history.filter((item) => item.id !== id);
-      saveToLocalStorage(updatedHistory);
+      if (!user) {
+        saveToLocalStorage(updatedHistory);
+      } else {
+        setHistory(updatedHistory);
+      }
       setDeleteConfirmId(null);
     } catch (err) {
       setError('Failed to delete the record: ' + err.message);
@@ -191,15 +296,16 @@ export default function HomePage() {
     setError(null);
   };
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     setStatus('submitting');
     setError(null);
     try {
-      const newRecord = {
-        id: 'calc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+      const recordId = user ? undefined : ('calc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
+      const calculationData = {
+        ...(user ? { userId: user.uid } : { id: recordId }),
         billingMonth,
-        createdAt: { seconds: Math.floor(Date.now() / 1000) },
+        createdAt: user ? serverTimestamp() : { seconds: Math.floor(Date.now() / 1000) },
         electricity: {
           currentReading: Number(currentMonth || 0),
           lastReading: Number(lastMonth || 0),
@@ -221,8 +327,20 @@ export default function HomePage() {
         combinedTotal: combinedTotal
       };
 
-      const updatedHistory = [newRecord, ...history];
-      saveToLocalStorage(updatedHistory);
+      if (user) {
+        const docRef = await addDoc(collection(db, 'calculations'), calculationData);
+        setHistory((prev) => [
+          {
+            id: docRef.id,
+            ...calculationData,
+            createdAt: { seconds: Math.floor(Date.now() / 1000) }
+          },
+          ...prev
+        ]);
+      } else {
+        const updatedHistory = [{ ...calculationData, id: recordId }, ...history];
+        saveToLocalStorage(updatedHistory);
+      }
       setStatus('success');
     } catch (err) {
       setStatus('idle');
@@ -728,18 +846,47 @@ export default function HomePage() {
 
       <Header title="Utility Bill Calculator" subtitle="Compute and save your electricity and water usage" />
 
-      {/* Storage Mode Bar */}
-      <div className="storage-bar">
-        <div className="storage-info">
-          <div className="storage-icon">💾</div>
-          <div>
-            <span className="storage-title">Client-Side Storage Mode</span>
-            <span className="storage-desc">Local Device Storage (100% Private & Offline Ready)</span>
+      {/* Dual Cloud SSO & Storage Status Bar */}
+      <div className="user-bar">
+        {authLoading ? (
+          <div style={{ color: '#64748b', fontSize: '0.9rem' }}>Checking account status...</div>
+        ) : user ? (
+          <div className="user-info">
+            {user.photoURL ? (
+              <img 
+                src={user.photoURL} 
+                alt={user.displayName || 'User Profile'} 
+                className="avatar" 
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="avatar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#e2e8f0', fontSize: '1.2rem' }}>👤</div>
+            )}
+            <div>
+              <span className="welcome-text" style={{ color: '#0369a1', fontWeight: 700 }}>☁️ Cloud Sync Active</span>
+              <strong className="user-name">{user.displayName || user.email}</strong>
+            </div>
+            <button type="button" onClick={handleSignOut} className="btn-signout">
+              Sign Out
+            </button>
           </div>
-        </div>
-        <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
-          No cloud login required. Data is saved directly to this device.
-        </div>
+        ) : (
+          <div className="login-prompt">
+            <div>
+              <strong style={{ display: 'block', color: '#0f172a', marginBottom: '0.2rem' }}>Sign in with Google to Sync Across Devices</strong>
+              <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Or calculate offline — your bills are automatically saved directly to this device.</span>
+            </div>
+            <button type="button" onClick={handleSignIn} className="btn-signin">
+              <svg className="google-icon" viewBox="0 0 24 24" width="18" height="18">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+              </svg>
+              Sign in with Google
+            </button>
+          </div>
+        )}
       </div>
 
       <form onSubmit={handleSubmit}>
@@ -910,12 +1057,12 @@ export default function HomePage() {
           </div>
 
           <button className="btn-save" type="submit" disabled={status === 'submitting'}>
-            {status === 'submitting' ? 'Saving to device…' : 'Save calculation to Device'}
+            {status === 'submitting' ? 'Saving calculation…' : user ? 'Save calculation to Cloud' : 'Save calculation to Device'}
           </button>
 
           {status === 'success' && (
             <div className="status-msg status-success" role="status">
-              Calculation saved successfully to your local device storage!
+              {user ? 'Calculation saved successfully to your Google cloud account!' : 'Calculation saved successfully to your local device storage!'}
             </div>
           )}
           {error && (
@@ -938,7 +1085,7 @@ export default function HomePage() {
               <button type="button" onClick={exportHistoryCSV} className="btn-bulk btn-export-csv" title="Export as CSV spreadsheet">
                 📊 Export CSV
               </button>
-              <button type="button" onClick={clearAllHistory} className="btn-bulk btn-clear-all" title="Delete all records from this device">
+              <button type="button" onClick={clearAllHistory} className="btn-bulk btn-clear-all" title="Delete all records">
                 🗑️ Clear All
               </button>
             </div>
@@ -946,10 +1093,10 @@ export default function HomePage() {
         </div>
 
         {historyLoading ? (
-          <div className="loading-spinner">Loading calculation history from device...</div>
+          <div className="loading-spinner">Loading calculation history...</div>
         ) : history.length === 0 ? (
           <div className="empty-history">
-            No calculations saved yet on this device. Enter readings and click &quot;Save calculation to Device&quot; above.
+            No calculations saved yet. Enter readings and click &quot;{user ? 'Save calculation to Cloud' : 'Save calculation to Device'}&quot; above.
           </div>
         ) : (
           <div className="history-list">
