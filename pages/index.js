@@ -1,25 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { 
-  auth, 
-  googleProvider, 
-  db, 
-  signInWithPopup, 
-  signOut 
-} from '../lib/firebase';
-import { 
-  onAuthStateChanged 
-} from 'firebase/auth';
-import { 
-  collection, 
-  addDoc, 
-  query, 
-  where, 
-  orderBy, 
-  getDocs, 
-  deleteDoc, 
-  doc, 
-  serverTimestamp 
-} from 'firebase/firestore';
+import { supabase } from '../lib/supabase';
+import {
+  listHistory,
+  insertHistory,
+  deleteHistory,
+  clearHistory,
+  local,
+} from '../lib/history';
+
+const FORM_DRAFT_KEY = 'utility_form_draft_v1';
 
 function Header({ title, subtitle }) {
   return (
@@ -40,12 +29,14 @@ export default function HomePage() {
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
 
-  // Dual Auth (Firebase Cloud SSO) and History State
+  // Dual Auth (Supabase Cloud SSO) and History State
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [pendingLocalCount, setPendingLocalCount] = useState(0);
+  const [uploading, setUploading] = useState(false);
 
   // Billing Month / Label State
   const [billingMonth, setBillingMonth] = useState(() => {
@@ -106,12 +97,7 @@ export default function HomePage() {
   const loadLocalHistory = useCallback(() => {
     setHistoryLoading(true);
     try {
-      const saved = localStorage.getItem('utility_calculations_v1');
-      if (saved) {
-        setHistory(JSON.parse(saved));
-      } else {
-        setHistory([]);
-      }
+      setHistory(local.list());
     } catch (err) {
       console.error('Failed to load local history:', err);
     } finally {
@@ -120,54 +106,64 @@ export default function HomePage() {
   }, []);
 
   const fetchCloudHistory = useCallback(async (userId) => {
-    if (!db) {
+    if (!supabase) {
       loadLocalHistory();
       return;
     }
     setHistoryLoading(true);
     try {
-      const q = query(
-        collection(db, 'calculations'),
-        where('userId', '==', userId),
-        orderBy('createdAt', 'desc')
-      );
-      const querySnapshot = await getDocs(q);
-      const records = [];
-      querySnapshot.forEach((docSnap) => {
-        records.push({ id: docSnap.id, ...docSnap.data() });
-      });
+      const records = await listHistory(userId);
       setHistory(records);
+      // Offer a one-time upload when this device holds offline history and the
+      // account has none, so signing in never looks like it lost past bills.
+      setPendingLocalCount(records.length === 0 ? local.list().length : 0);
     } catch (err) {
       console.error('Error fetching cloud history:', err);
-      // If Firestore fails, fallback gracefully to local storage
+      // If the cloud read fails, fall back gracefully to local storage
       loadLocalHistory();
     } finally {
       setHistoryLoading(false);
     }
   }, [loadLocalHistory]);
 
-  // Track Firebase Auth Changes & Load Cloud/Local History
+  // Track Supabase auth changes & load cloud/local history
   useEffect(() => {
-    if (!auth) {
+    if (!supabase) {
       setAuthLoading(false);
       loadLocalHistory();
       return;
     }
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+
+    let active = true;
+
+    const applySession = async (session) => {
+      if (!active) return;
+      const currentUser = session?.user ?? null;
       setUser(currentUser);
       setAuthLoading(false);
       if (currentUser) {
-        await fetchCloudHistory(currentUser.uid);
+        await fetchCloudHistory(currentUser.id);
       } else {
+        setPendingLocalCount(0);
         loadLocalHistory();
       }
+    };
+
+    supabase.auth.getSession().then(({ data }) => applySession(data.session));
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      applySession(session);
     });
-    return () => unsubscribe();
+
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
   }, [fetchCloudHistory, loadLocalHistory]);
 
   const saveToLocalStorage = (newHistory) => {
     try {
-      localStorage.setItem('utility_calculations_v1', JSON.stringify(newHistory));
+      local.save(newHistory);
       setHistory(newHistory);
     } catch (err) {
       setError('Failed to save to local storage: ' + err.message);
@@ -175,20 +171,37 @@ export default function HomePage() {
   };
 
   const clearAllHistory = async () => {
-    const msg = user 
+    const msg = user
       ? 'Are you sure you want to delete all saved calculation history from your cloud account and device?'
       : 'Are you sure you want to delete all saved calculation history from this device?';
-    if (window.confirm(msg)) {
+    if (!window.confirm(msg)) return;
+    try {
       if (user) {
-        try {
-          for (const item of history) {
-            await deleteDoc(doc(db, 'calculations', item.id)).catch(() => {});
-          }
-        } catch (e) {
-          console.error('Error clearing cloud records:', e);
-        }
+        // One statement, rather than one round trip per record.
+        await clearHistory(user.id);
       }
       saveToLocalStorage([]);
+      setPendingLocalCount(0);
+    } catch (err) {
+      setError('Failed to clear history: ' + (err.message || 'unknown error'));
+    }
+  };
+
+  const uploadLocalHistory = async () => {
+    if (!user) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const pending = [...local.list()].reverse(); // oldest first, so order is preserved
+      for (const item of pending) {
+        await insertHistory(item, user.id);
+      }
+      await fetchCloudHistory(user.id);
+      setPendingLocalCount(0);
+    } catch (err) {
+      setError('Failed to upload this device’s history: ' + (err.message || 'unknown error'));
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -209,7 +222,7 @@ export default function HomePage() {
     const rows = history.map(item => [
       item.id,
       `"${item.billingMonth || ''}"`,
-      item.createdAt?.seconds ? new Date(item.createdAt.seconds * 1000).toLocaleDateString() : '',
+      item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '',
       item.electricity?.usage || 0,
       item.electricity?.rate || 0,
       item.electricity?.total || 0,
@@ -248,30 +261,78 @@ export default function HomePage() {
     fetchLatestTariff(true);
   }, [fetchLatestTariff]);
 
+  // Restore readings that were in progress before the sign-in redirect, and
+  // drop the OAuth ?code= so a reload doesn't retry an already-spent exchange.
+  useEffect(() => {
+    try {
+      const draft = sessionStorage.getItem(FORM_DRAFT_KEY);
+      if (draft) {
+        const saved = JSON.parse(draft);
+        if (saved.billingMonth) setBillingMonth(saved.billingMonth);
+        if (saved.currentMonth) setCurrentMonth(saved.currentMonth);
+        if (saved.lastMonth) setLastMonth(saved.lastMonth);
+        if (saved.electricityRate) setElectricityRate(saved.electricityRate);
+        if (saved.waterCurrentMonth) setWaterCurrentMonth(saved.waterCurrentMonth);
+        if (saved.waterLastMonth) setWaterLastMonth(saved.waterLastMonth);
+        if (saved.waterTax) setWaterTax(saved.waterTax);
+        sessionStorage.removeItem(FORM_DRAFT_KEY);
+      }
+    } catch (err) {
+      console.error('Failed to restore in-progress readings:', err);
+    }
+
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('code') || url.searchParams.has('state')) {
+      url.searchParams.delete('code');
+      url.searchParams.delete('state');
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    }
+  }, []);
+
   const handleSignIn = async () => {
-    if (!auth) {
-      setError('Firebase Sign-In requires your Vercel Environment Variables (NEXT_PUBLIC_FIREBASE_API_KEY, etc.) to be configured.');
+    if (!supabase) {
+      setError('Google Sign-In requires NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to be configured.');
       return;
     }
     setError(null);
     try {
-      await signInWithPopup(auth, googleProvider);
+      // Sign-in is a full-page redirect, so snapshot any in-progress readings
+      // and restore them when the browser comes back.
+      sessionStorage.setItem(
+        FORM_DRAFT_KEY,
+        JSON.stringify({
+          billingMonth,
+          currentMonth,
+          lastMonth,
+          electricityRate,
+          waterCurrentMonth,
+          waterLastMonth,
+          waterTax,
+        })
+      );
+      const { error: signInError } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: window.location.origin },
+      });
+      if (signInError) throw signInError;
     } catch (err) {
-      if (err.code === 'auth/unauthorized-domain') {
-        setError('Google Sign-In blocked: Domain not authorized. To fix this instantly, add your Vercel domain (yh-utility-app.vercel.app) to your Firebase Console -> Authentication -> Settings -> Authorized Domains.');
-      } else if (err.code === 'auth/popup-closed-by-user') {
-        // Closed popup peacefully
+      const message = err.message || 'Failed to sign in with Google';
+      if (/redirect|not allowed/i.test(message)) {
+        setError(
+          `Google Sign-In blocked: this origin (${window.location.origin}) is not in the Supabase allow-list. Add it under Authentication → URL Configuration → Redirect URLs.`
+        );
       } else {
-        setError(err.message || 'Failed to sign in with Google');
+        setError(message);
       }
     }
   };
 
   const handleSignOut = async () => {
-    if (!auth) return;
+    if (!supabase) return;
     setError(null);
     try {
-      await signOut(auth);
+      const { error: signOutError } = await supabase.auth.signOut();
+      if (signOutError) throw signOutError;
     } catch (err) {
       setError(err.message || 'Failed to sign out');
     }
@@ -279,14 +340,11 @@ export default function HomePage() {
 
   const deleteHistoryEntry = async (id) => {
     try {
-      if (user && db) {
-        await deleteDoc(doc(db, 'calculations', id));
-      }
-      const updatedHistory = history.filter((item) => item.id !== id);
-      if (!user) {
-        saveToLocalStorage(updatedHistory);
+      if (user && supabase) {
+        await deleteHistory(id);
+        setHistory((prev) => prev.filter((item) => item.id !== id));
       } else {
-        setHistory(updatedHistory);
+        setHistory(local.remove(id));
       }
       setDeleteConfirmId(null);
     } catch (err) {
@@ -315,11 +373,9 @@ export default function HomePage() {
     setStatus('submitting');
     setError(null);
     try {
-      const recordId = user ? undefined : ('calc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
       const calculationData = {
-        ...(user ? { userId: user.uid } : { id: recordId }),
         billingMonth,
-        createdAt: user ? serverTimestamp() : { seconds: Math.floor(Date.now() / 1000) },
+        createdAt: new Date().toISOString(),
         electricity: {
           currentReading: Number(currentMonth || 0),
           lastReading: Number(lastMonth || 0),
@@ -341,19 +397,13 @@ export default function HomePage() {
         combinedTotal: combinedTotal
       };
 
-      if (user && db) {
-        const docRef = await addDoc(collection(db, 'calculations'), calculationData);
-        setHistory((prev) => [
-          {
-            id: docRef.id,
-            ...calculationData,
-            createdAt: { seconds: Math.floor(Date.now() / 1000) }
-          },
-          ...prev
-        ]);
+      if (user && supabase) {
+        // created_at comes from the column default, so the saved row is the
+        // authoritative record.
+        const saved = await insertHistory(calculationData, user.id);
+        setHistory((prev) => [saved, ...prev]);
       } else {
-        const updatedHistory = [{ ...calculationData, id: recordId }, ...history];
-        saveToLocalStorage(updatedHistory);
+        setHistory(local.insert(calculationData));
       }
       setStatus('success');
     } catch (err) {
@@ -480,6 +530,45 @@ export default function HomePage() {
         }
         .google-icon {
           flex-shrink: 0;
+        }
+        .upload-prompt {
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
+          border-radius: 12px;
+          padding: 1rem 1.5rem;
+          margin-bottom: 2rem;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 1rem;
+        }
+        .upload-prompt strong {
+          display: block;
+          color: #0f172a;
+          margin-bottom: 0.2rem;
+        }
+        .upload-prompt span {
+          font-size: 0.85rem;
+          color: #475569;
+        }
+        .btn-upload {
+          background-color: #0369a1;
+          color: #ffffff;
+          border: none;
+          border-radius: 6px;
+          padding: 0.5rem 1rem;
+          font-size: 0.875rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .btn-upload:hover:not(:disabled) {
+          background-color: #075985;
+        }
+        .btn-upload:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
 
         .grid-layout {
@@ -866,11 +955,11 @@ export default function HomePage() {
           <div style={{ color: '#64748b', fontSize: '0.9rem' }}>Checking account status...</div>
         ) : user ? (
           <div className="user-info">
-            {user.photoURL ? (
-              <img 
-                src={user.photoURL} 
-                alt={user.displayName || 'User Profile'} 
-                className="avatar" 
+            {user.user_metadata?.avatar_url ? (
+              <img
+                src={user.user_metadata.avatar_url}
+                alt={user.user_metadata?.full_name || 'User Profile'}
+                className="avatar"
                 referrerPolicy="no-referrer"
               />
             ) : (
@@ -878,7 +967,7 @@ export default function HomePage() {
             )}
             <div>
               <span className="welcome-text" style={{ color: '#0369a1', fontWeight: 700 }}>☁️ Cloud Sync Active</span>
-              <strong className="user-name">{user.displayName || user.email}</strong>
+              <strong className="user-name">{user.user_metadata?.full_name || user.email}</strong>
             </div>
             <button type="button" onClick={handleSignOut} className="btn-signout">
               Sign Out
@@ -902,6 +991,23 @@ export default function HomePage() {
           </div>
         )}
       </div>
+
+      {pendingLocalCount > 0 && (
+        <div className="upload-prompt">
+          <div>
+            <strong>This device has saved bills that aren&apos;t in your account yet.</strong>
+            <span>Upload them once to sync across devices. The copy on this device is kept either way.</span>
+          </div>
+          <button
+            type="button"
+            onClick={uploadLocalHistory}
+            disabled={uploading}
+            className="btn-upload"
+          >
+            {uploading ? 'Uploading…' : `Upload ${pendingLocalCount} saved ${pendingLocalCount === 1 ? 'bill' : 'bills'}`}
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit}>
         {/* Billing Month card */}
@@ -1119,8 +1225,8 @@ export default function HomePage() {
                   <div className="history-header">
                     <span className="history-month">{item.billingMonth}</span>
                     <span className="history-date">
-                      {item.createdAt?.seconds 
-                        ? new Date(item.createdAt.seconds * 1000).toLocaleDateString()
+                      {item.createdAt
+                        ? new Date(item.createdAt).toLocaleDateString()
                         : 'Just now'}
                     </span>
                   </div>
