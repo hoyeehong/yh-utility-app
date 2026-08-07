@@ -1,7 +1,11 @@
 # Utility App Demo
 NextJS demo app to calculate monthly utilities usage (WIP)
 
-Currently hosting on [Github Pages](https://hoyeehong.github.io/yh-utility-app.github.io/) and [Vercel](https://yh-utility-app.vercel.app/)
+Hosted on [Vercel](https://yh-utility-app.vercel.app/).
+
+The GitHub Pages deployment was retired: a static export has no server, so the
+`/api/tariff` route could never run there and the SP tariff lookup was
+permanently dead on that URL.
 
 ## Storage
 
@@ -31,4 +35,3 @@ bypasses Row Level Security and must never appear in client code, in a
      - `http://localhost:3000/**`
      - `https://yh-utility-app.vercel.app/**`
      - `https://yh-utility-app-*.vercel.app/**` (covers Vercel previews)
-     - `https://hoyeehong.github.io/**` (only if Pages sign-in is wanted)
