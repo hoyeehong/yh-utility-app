@@ -261,8 +261,12 @@ export default function HomePage() {
     fetchLatestTariff(true);
   }, [fetchLatestTariff]);
 
-  // Restore readings that were in progress before the sign-in redirect, and
-  // drop the OAuth ?code= so a reload doesn't retry an already-spent exchange.
+  // Restore readings that were in progress before the sign-in redirect.
+  //
+  // Deliberately does NOT strip the OAuth ?code= from the URL: supabase-js owns
+  // that cleanup and removes it once the PKCE exchange succeeds. Stripping it
+  // here would race the exchange and could delete the code before it is spent —
+  // and on a failed exchange, leaving it visible is the more debuggable outcome.
   useEffect(() => {
     try {
       const draft = sessionStorage.getItem(FORM_DRAFT_KEY);
@@ -279,13 +283,6 @@ export default function HomePage() {
       }
     } catch (err) {
       console.error('Failed to restore in-progress readings:', err);
-    }
-
-    const url = new URL(window.location.href);
-    if (url.searchParams.has('code') || url.searchParams.has('state')) {
-      url.searchParams.delete('code');
-      url.searchParams.delete('state');
-      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
     }
   }, []);
 
