@@ -1,0 +1,113 @@
+# ── Local development orchestrator ────────────────────────────────────────────
+# Usage:
+#   docker-compose up -d --build      Start all services
+#   docker-compose logs -f backend    Tail backend logs
+#   docker-compose down               Stop everything
+#
+# Services exposed locally:
+#   Frontend  → http://localhost:3000
+#   Backend   → http://localhost:8000
+#   Phoenix   → http://localhost:6006 (Arize Observability & Evaluation Dashboard)
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── ADK Python Backend ──────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: utility-adk-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Unified LLM Model selection (Gemini, Claude, GPT, Groq, OpenRouter)
+      - LLM_MODEL=${LLM_MODEL:-gemini-3.1-flash}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # Google Cloud / Vertex AI & Firestore
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
+      - GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION:-asia-southeast1}
+      - FIRESTORE_DATABASE_ID=${FIRESTORE_DATABASE_ID:-utility-app-firestore}
+      - GOOGLE_APPLICATION_CREDENTIALS=/secrets/gcp-key.json
+      # Arize Phoenix Observability & Evals
+      - ENABLE_ARIZE_OBSERVABILITY=${ENABLE_ARIZE_OBSERVABILITY:-true}
+      - PHOENIX_AUTO_LAUNCH=false
+      - PHOENIX_COLLECTOR_ENDPOINT=${PHOENIX_COLLECTOR_ENDPOINT:-http://phoenix:6006/v1/traces}
+      - ARIZE_SPACE_ID=${ARIZE_SPACE_ID:-}
+      - ARIZE_API_KEY=${ARIZE_API_KEY:-}
+    volumes:
+      # Mount backend source for instant live updates
+      - ./adk-backend:/app
+      # Mount GCP service account key read-only — never bake into image
+      - ${GCP_KEY_PATH:-./secrets/gcp-key.json}:/secrets/gcp-key.json:ro
+    depends_on:
+      - phoenix
+    networks:
+      - utility-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ── Next.js Frontend ────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        # Firebase public config — safe to pass as build args
+        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY}
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID}
+        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}
+        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
+        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID}
+        NEXT_PUBLIC_FIREBASE_DATABASE_ID: ${NEXT_PUBLIC_FIREBASE_DATABASE_ID:-utility-app-firestore}
+        # Backend URL: Docker internal DNS — no localhost needed
+        ADK_BACKEND_URL: http://backend:8000
+    container_name: utility-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      # Server-side only var (not NEXT_PUBLIC_): used by pages/api/adk-proxy.js
+      - ADK_BACKEND_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - utility-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000', (r) => process.exit(r.statusCode < 400 ? 0 : 1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Arize Phoenix Observability & Evals ──────────────────────────────────────
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: utility-phoenix
+    ports:
+      - "6006:6006"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      - PHOENIX_PORT=6006
+      - PHOENIX_GRPC_PORT=4317
+    networks:
+      - utility-net
+    restart: unless-stopped
+
+networks:
+  utility-net:
+    driver: bridge
+    name: utility-net
