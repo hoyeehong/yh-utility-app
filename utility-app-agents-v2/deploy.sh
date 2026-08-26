@@ -71,17 +71,25 @@ gcloud auth configure-docker "${GAR_HOST}" --quiet
 # BACKEND
 # ─────────────────────────────────────────────────────────────────────────────
 deploy_backend() {
-  log "3a/6 — Building backend image"
-  docker build \
-    --platform linux/amd64 \
-    -f Dockerfile.backend \
-    -t "${BACKEND_IMAGE}" \
+  log "3a/6 — Building and pushing backend image via Cloud Build"
+  
+  cat <<EOF > /tmp/cloudbuild-backend.yaml
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-f', 'Dockerfile.backend', '-t', '${BACKEND_IMAGE}', '.']
+images:
+- '${BACKEND_IMAGE}'
+EOF
+
+  gcloud builds submit \
+    --config=/tmp/cloudbuild-backend.yaml \
+    --project="${GOOGLE_CLOUD_PROJECT}" \
+    --region="${GCP_REGION}" \
     .
 
-  log "3b/6 — Pushing backend image → Artifact Registry"
-  docker push "${BACKEND_IMAGE}"
+  rm -f /tmp/cloudbuild-backend.yaml
 
-  log "3c/6 — Deploying backend → Cloud Run (${GCP_REGION})"
+  log "3b/6 — Deploying backend → Cloud Run (${GCP_REGION})"
   
   # Build env vars string dynamically
   ENV_VARS="GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT},GOOGLE_CLOUD_LOCATION=${GCP_REGION},LLM_MODEL=${LLM_MODEL:-gemini-3.7-flash},FIRESTORE_DATABASE_ID=${FIRESTORE_DATABASE_ID:-utility-app-firestore}"
@@ -133,24 +141,45 @@ deploy_frontend() {
     exit 1
   fi
 
-  log "4a/6 — Building frontend image (ADK_BACKEND_URL=${BACKEND_URL})"
-  docker build \
-    --platform linux/amd64 \
-    -f Dockerfile.frontend \
-    --build-arg NEXT_PUBLIC_FIREBASE_API_KEY="${NEXT_PUBLIC_FIREBASE_API_KEY}" \
-    --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}" \
-    --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID="${NEXT_PUBLIC_FIREBASE_PROJECT_ID}" \
-    --build-arg NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}" \
-    --build-arg NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}" \
-    --build-arg NEXT_PUBLIC_FIREBASE_APP_ID="${NEXT_PUBLIC_FIREBASE_APP_ID}" \
-    --build-arg ADK_BACKEND_URL="${BACKEND_URL}" \
-    -t "${FRONTEND_IMAGE}" \
+  log "4a/6 — Building and pushing frontend image via Cloud Build (ADK_BACKEND_URL=${BACKEND_URL})"
+  
+  cat <<EOF > /tmp/cloudbuild-frontend.yaml
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args:
+  - 'build'
+  - '-f'
+  - 'Dockerfile.frontend'
+  - '--build-arg'
+  - 'NEXT_PUBLIC_FIREBASE_API_KEY=${NEXT_PUBLIC_FIREBASE_API_KEY}'
+  - '--build-arg'
+  - 'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}'
+  - '--build-arg'
+  - 'NEXT_PUBLIC_FIREBASE_PROJECT_ID=${NEXT_PUBLIC_FIREBASE_PROJECT_ID}'
+  - '--build-arg'
+  - 'NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}'
+  - '--build-arg'
+  - 'NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}'
+  - '--build-arg'
+  - 'NEXT_PUBLIC_FIREBASE_APP_ID=${NEXT_PUBLIC_FIREBASE_APP_ID}'
+  - '--build-arg'
+  - 'ADK_BACKEND_URL=${BACKEND_URL}'
+  - '-t'
+  - '${FRONTEND_IMAGE}'
+  - '.'
+images:
+- '${FRONTEND_IMAGE}'
+EOF
+
+  gcloud builds submit \
+    --config=/tmp/cloudbuild-frontend.yaml \
+    --project="${GOOGLE_CLOUD_PROJECT}" \
+    --region="${GCP_REGION}" \
     .
 
-  log "4b/6 — Pushing frontend image → Artifact Registry"
-  docker push "${FRONTEND_IMAGE}"
+  rm -f /tmp/cloudbuild-frontend.yaml
 
-  log "4c/6 — Deploying frontend → Cloud Run (${GCP_REGION})"
+  log "4b/6 — Deploying frontend → Cloud Run (${GCP_REGION})"
   gcloud run deploy "${FRONTEND_SERVICE_NAME}" \
     --image "${FRONTEND_IMAGE}" \
     --platform managed \
