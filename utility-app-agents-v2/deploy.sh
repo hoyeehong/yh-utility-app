@@ -33,7 +33,6 @@ fi
 : "${GAR_REPO:?Set GAR_REPO in .env}"
 : "${BACKEND_SERVICE_NAME:?Set BACKEND_SERVICE_NAME in .env}"
 : "${FRONTEND_SERVICE_NAME:?Set FRONTEND_SERVICE_NAME in .env}"
-: "${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in .env}"
 
 TAG="${IMAGE_TAG:-latest}"
 GAR_HOST="${GCP_REGION}-docker.pkg.dev"
@@ -83,6 +82,16 @@ deploy_backend() {
   docker push "${BACKEND_IMAGE}"
 
   log "3c/6 — Deploying backend → Cloud Run (${GCP_REGION})"
+  
+  # Build env vars string dynamically
+  ENV_VARS="GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT},GOOGLE_CLOUD_LOCATION=${GCP_REGION},LLM_MODEL=${LLM_MODEL:-gemini-3.7-flash},FIRESTORE_DATABASE_ID=${FIRESTORE_DATABASE_ID:-utility-app-firestore}"
+  
+  [ -n "${GEMINI_API_KEY:-}" ] && ENV_VARS="${ENV_VARS},GEMINI_API_KEY=${GEMINI_API_KEY}"
+  [ -n "${ANTHROPIC_API_KEY:-}" ] && ENV_VARS="${ENV_VARS},ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
+  [ -n "${OPENAI_API_KEY:-}" ] && ENV_VARS="${ENV_VARS},OPENAI_API_KEY=${OPENAI_API_KEY}"
+  [ -n "${GROQ_API_KEY:-}" ] && ENV_VARS="${ENV_VARS},GROQ_API_KEY=${GROQ_API_KEY}"
+  [ -n "${OPENROUTER_API_KEY:-}" ] && ENV_VARS="${ENV_VARS},OPENROUTER_API_KEY=${OPENROUTER_API_KEY}"
+
   gcloud run deploy "${BACKEND_SERVICE_NAME}" \
     --image "${BACKEND_IMAGE}" \
     --platform managed \
@@ -94,11 +103,8 @@ deploy_backend() {
     --concurrency 80 \
     --min-instances 0 \
     --max-instances 5 \
-    --no-allow-unauthenticated \
-    --set-env-vars "GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}" \
-    --set-env-vars "GOOGLE_CLOUD_LOCATION=${GCP_REGION}" \
-    --set-env-vars "LITELLM_MODEL=${LITELLM_MODEL:-anthropic/claude-sonnet-5}" \
-    --set-secrets "ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest" \
+    --allow-unauthenticated \
+    --set-env-vars "${ENV_VARS}" \
     --project "${GOOGLE_CLOUD_PROJECT}" \
     --quiet
 
