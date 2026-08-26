@@ -1,37 +1,58 @@
-# Utility App Demo
-NextJS demo app to calculate monthly utilities usage (WIP)
+# Utility App Monorepo
 
-Hosted on [Vercel](https://yh-utility-app.vercel.app/).
+This repository contains two evolutions of the Singapore SP Services / Electricity Tariff Comparison & Utility Tracking Application.
 
-The GitHub Pages deployment was retired: a static export has no server, so the
-`/api/tariff` route could never run there and the SP tariff lookup was
-permanently dead on that URL.
+---
 
-## Storage
+## Directory Overview
 
-The app is offline-first. With no environment variables set it runs entirely on
-LocalStorage — every feature works except cross-device sync. Setting the two
-Supabase variables below activates Google sign-in and cloud sync.
-
-```
-NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon / publishable key>
+```text
+yh-utility-app/
+├── utility-app-static-v1/     # Legacy v1: Static Next.js frontend with Supabase integration
+└── utility-app-agents-v2/     # Current v2: Multi-agent Next.js + Python ADK Backend + Cloud Run deploy
 ```
 
-Only the anon key belongs in a `NEXT_PUBLIC_` variable. The `service_role` key
-bypasses Row Level Security and must never appear in client code, in a
-`NEXT_PUBLIC_` variable, or in this repository.
+---
 
-## Supabase setup
+## Versions & Comparison
 
-1. Apply `supabase/migrations/0001_init.sql` (SQL editor, or `supabase db push`).
-2. **Authentication → Providers → Google**: enable, paste the OAuth client ID and
-   secret from Google Cloud. The only redirect URI Google needs is
-   `https://<project-ref>.supabase.co/auth/v1/callback` — new frontend domains
-   never require a Google Cloud change.
-3. **Authentication → URL Configuration**:
-   - Site URL: `https://yh-utility-app.vercel.app`
-   - Additional Redirect URLs:
-     - `http://localhost:3000/**`
-     - `https://yh-utility-app.vercel.app/**`
-     - `https://yh-utility-app-*.vercel.app/**` (covers Vercel previews)
+| Feature | [utility-app-static-v1](./utility-app-static-v1/) | [utility-app-agents-v2](./utility-app-agents-v2/) |
+| :--- | :--- | :--- |
+| **Release Type** | Legacy Baseline (v1.0) | Production Microservices (v2.0) |
+| **Architecture** | Single-tier static Next.js app | Two-tier: Next.js frontend + Python ADK backend |
+| **Authentication & Storage** | Supabase Auth & Storage | Firebase Cloud SSO & Cloud Firestore / Storage |
+| **AI Capabilities** | Client-side calculations | Multi-Model Agent (Gemini, Claude, GPT), OCR bill scanner |
+| **Observability & Evals** | N/A | Arize Phoenix traces, spans, and eval suites |
+| **Deployment Target** | Single Container / Static Host | Dual Google Cloud Run services via `deploy.sh` |
+
+---
+
+## Quick Start
+
+### Running v2 (Agentic App)
+```bash
+cd utility-app-agents-v2
+cp .env.docker .env
+# Edit .env with your GCP / LLM credentials
+docker-compose up -d --build
+```
+- Frontend: `http://localhost:3000`
+- Backend: `http://localhost:8000`
+- Phoenix Dashboard: `http://localhost:6006`
+
+### Running v1 (Static App)
+```bash
+cd utility-app-static-v1
+npm install
+npm run dev
+```
+- Accessible at `http://localhost:3000`
+
+---
+
+## Google Cloud Run Deployment
+To deploy the full Agentic system to Google Cloud Run, follow the guide inside [`utility-app-agents-v2/deploy.sh`](./utility-app-agents-v2/deploy.sh):
+```bash
+cd utility-app-agents-v2
+./deploy.sh all
+```
