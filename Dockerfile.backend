@@ -1,0 +1,34 @@
+# ADK Python Backend — Cloud Run optimised
+FROM python:3.11.13-slim
+
+WORKDIR /app
+
+# Reduce image noise and pip overhead
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PORT=8000
+
+# System deps required by some Python packages (e.g. Pillow)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    libglib2.0-0 \
+    libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python deps first (layer-cached unless requirements.txt changes)
+COPY adk-backend/requirements.txt .
+# Skip test deps inside the container
+RUN pip install -r requirements.txt
+
+# Copy backend source
+COPY adk-backend/ .
+
+# Cloud Run injects PORT env var — uvicorn honours it
+EXPOSE 8000
+
+# ADK's built-in API server (equivalent to `adk api_server`)
+# Falls back to uvicorn directly for maximum compatibility
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]

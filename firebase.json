@@ -1,0 +1,9 @@
+{
+  "firestore": {
+    "database": "utility-app-firestore",
+    "rules": "firestore.rules"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  }
+}

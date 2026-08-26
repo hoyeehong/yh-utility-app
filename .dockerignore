@@ -1,0 +1,42 @@
+# ── Secrets — NEVER in Docker images ─────────────────────────────────────────
+.env
+.env.local
+.env*.local
+secrets/
+*-adminsdk-*.json
+*.service-account.json
+*-key.json
+
+# ── Node / Next.js ────────────────────────────────────────────────────────────
+node_modules/
+.next/
+npm-debug.log*
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+dist/
+build/
+
+# ── Dev tooling ───────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.claude/
+.vscode/
+.antigravity/
+*.md
+README*
+Makefile
+
+# ── Test files ────────────────────────────────────────────────────────────────
+adk-backend/tests/
+
+# ── Supabase leftovers ────────────────────────────────────────────────────────
+supabase/
