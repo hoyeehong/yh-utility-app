@@ -15,6 +15,12 @@ Reference: https://google.github.io/adk-docs/get-started/
 import os
 from dotenv import load_dotenv
 
+load_dotenv()
+
+# Arize AX Tracing: Initialize tracer & instrumentors before ADK / agents / LLMs
+from telemetry import init_telemetry
+init_telemetry()
+
 try:
     from google.adk.agents import LlmAgent
     from google.adk.models.lite_llm import LiteLlm

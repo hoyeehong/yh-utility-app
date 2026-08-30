@@ -40,6 +40,15 @@ def test_trace_span_context_manager():
         assert val == 50
 
 
+def test_trace_tool_handles_exceptions():
+    @trace_tool("failing_tool")
+    def faulty():
+        raise ValueError("Something went wrong in calculation")
+
+    with pytest.raises(ValueError, match="Something went wrong"):
+        faulty()
+
+
 def test_eval_schema_conformance():
     complete_data = {
         "billingMonth": "AUG 2026",

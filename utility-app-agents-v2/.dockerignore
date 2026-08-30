@@ -1,8 +1,8 @@
 # ── Secrets — NEVER in Docker images ─────────────────────────────────────────
-.env
-.env.local
-.env*.local
+.env*
+**/.env*
 secrets/
+
 *-adminsdk-*.json
 *.service-account.json
 *-key.json

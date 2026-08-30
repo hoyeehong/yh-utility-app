@@ -35,73 +35,116 @@ def get_tracer():
 
 def init_telemetry(app=None) -> bool:
     """
-    Initializes Arize Phoenix & OpenTelemetry instrumentors.
+    Initializes Arize AX & OpenTelemetry instrumentors.
+    Supports Arize AX Cloud (via arize-otel) and local Phoenix fallback.
     
     Returns True if successfully initialized, False otherwise.
     """
     global _TELEMETRY_INITIALIZED, _TRACER, _PHOENIX_SESSION
 
     if not is_telemetry_enabled():
-        logger.info("Arize / Phoenix telemetry is disabled (ENABLE_ARIZE_OBSERVABILITY!=true).")
+        logger.info("Arize telemetry is disabled (ENABLE_ARIZE_OBSERVABILITY!=true).")
         return False
 
     if _TELEMETRY_INITIALIZED:
         return True
 
     try:
-        from opentelemetry import trace
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-        from opentelemetry.sdk.resources import Resource
-        from openinference.instrumentation.litellm import LiteLLMInstrumentor
+        space_id = os.getenv("ARIZE_SPACE_ID") or os.getenv("ARIZE_SPACE_KEY")
+        api_key = os.getenv("ARIZE_API_KEY")
+        project_name = os.getenv("ARIZE_PROJECT_NAME", "utility-bill-assistant")
+        tracer_provider = None
 
-        # 1. Optionally auto-launch local Phoenix UI if explicitly requested
-        auto_launch = os.getenv("PHOENIX_AUTO_LAUNCH", "false").lower() in ("1", "true", "yes", "on")
-        if auto_launch and not os.getenv("ARIZE_API_KEY"):
+        # 1. Primary: Arize AX Cloud setup via arize.otel.register
+        if space_id and api_key:
             try:
-                import phoenix as px
-                _PHOENIX_SESSION = px.launch_app(port=6006)
-                logger.info("⚡ Arize Phoenix local dashboard running at http://localhost:6006")
+                from arize.otel import register
+                tracer_provider = register(
+                    space_id=space_id,
+                    api_key=api_key,
+                    project_name=project_name,
+                )
+                print(f"INFO: [Telemetry] ✅ Arize AX tracing registered for project '{project_name}'.", flush=True)
+                logger.info(f"Arize AX tracing registered for project '{project_name}'.")
             except Exception as e:
-                logger.debug(f"Standalone Phoenix app not launched: {e}")
+                logger.warning(f"arize.otel.register failed ({e}), falling back to standard OTel setup.")
 
-        # 2. Setup standard OTel TracerProvider & OTLP Exporter pointing to Phoenix / Arize
-        collector_endpoint = os.getenv(
-            "PHOENIX_COLLECTOR_ENDPOINT",
-            "http://phoenix:6006/v1/traces" if not os.getenv("ARIZE_API_KEY") else "https://otlp.arize.com/v1"
-        )
+        # 2. Fallback: Local Phoenix or custom OTLP endpoint
+        if tracer_provider is None:
+            auto_launch = os.getenv("PHOENIX_AUTO_LAUNCH", "false").lower() in ("1", "true", "yes", "on")
+            if auto_launch:
+                try:
+                    import phoenix as px
+                    _PHOENIX_SESSION = px.launch_app(port=6006)
+                    print("INFO: [Telemetry] ⚡ Arize Phoenix local dashboard running at http://localhost:6006", flush=True)
+                    logger.info("Arize Phoenix local dashboard running at http://localhost:6006")
+                except Exception as e:
+                    logger.debug(f"Standalone Phoenix app not launched: {e}")
 
-        headers = {}
-        if os.getenv("ARIZE_API_KEY"):
-            headers["api_key"] = os.getenv("ARIZE_API_KEY", "")
-        if os.getenv("ARIZE_SPACE_ID"):
-            headers["space_id"] = os.getenv("ARIZE_SPACE_ID", "")
+            collector_endpoint = (
+                os.getenv("ARIZE_OTLP_ENDPOINT")
+                or os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006/v1/traces")
+            )
 
-        resource = Resource.create({
-            "service.name": "utility-bill-adk-backend",
-            "project_name": "utility-bill-assistant",
-            "model_id": "utility-bill-assistant",
-        })
+            from opentelemetry import trace
+            from opentelemetry.sdk.trace import TracerProvider
+            from opentelemetry.sdk.trace.export import BatchSpanProcessor
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+            from opentelemetry.sdk.resources import Resource
 
-        tracer_provider = TracerProvider(resource=resource)
-        exporter = OTLPSpanExporter(
-            endpoint=collector_endpoint,
-            headers=headers if headers else None,
-        )
-        tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
-        trace.set_tracer_provider(tracer_provider)
+            resource = Resource.create({
+                "service.name": "utility-bill-adk-backend",
+                "openinference.project.name": project_name,
+                "project_name": project_name,
+                "model_id": project_name,
+            })
+            tracer_provider = TracerProvider(resource=resource)
+            headers = {}
+            if api_key:
+                headers["api_key"] = api_key
+            if space_id:
+                headers["space_id"] = space_id
+                headers["space_key"] = space_id
+
+            exporter = OTLPSpanExporter(
+                endpoint=collector_endpoint,
+                headers=headers if headers else None,
+            )
+            tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
+            trace.set_tracer_provider(tracer_provider)
+            print(f"INFO: [Telemetry] ✅ Fallback OpenTelemetry exporter configured (exporting to {collector_endpoint}).", flush=True)
+
+        from opentelemetry import trace
         _TRACER = trace.get_tracer("utility-bill-adk-backend", tracer_provider=tracer_provider)
 
-        # 3. Instrument LiteLLM (captures tokens, latency, prompt/completions)
+        # 3. Instrument Google ADK
         try:
+            from openinference.instrumentation.google_adk import GoogleADKInstrumentor
+            GoogleADKInstrumentor().instrument(tracer_provider=tracer_provider)
+            print("INFO: [Telemetry] Google ADK OpenInference instrumentor active.", flush=True)
+            logger.info("Google ADK OpenInference instrumentor active.")
+        except Exception as e:
+            logger.warning(f"Google ADK instrumentation warning: {e}")
+
+        # 4. Instrument LiteLLM
+        try:
+            from openinference.instrumentation.litellm import LiteLLMInstrumentor
             LiteLLMInstrumentor().instrument(tracer_provider=tracer_provider)
             print("INFO: [Telemetry] LiteLLM OpenInference instrumentor active.", flush=True)
             logger.info("LiteLLM OpenInference instrumentor active.")
         except Exception as e:
             logger.warning(f"LiteLLM instrumentation warning: {e}")
 
-        # 4. Instrument FastAPI app if provided
+        # 5. Instrument Google GenAI SDK
+        try:
+            from openinference.instrumentation.google_genai import GoogleGenAIInstrumentor
+            GoogleGenAIInstrumentor().instrument(tracer_provider=tracer_provider)
+            print("INFO: [Telemetry] Google GenAI OpenInference instrumentor active.", flush=True)
+            logger.info("Google GenAI OpenInference instrumentor active.")
+        except Exception as e:
+            logger.warning(f"Google GenAI instrumentation warning: {e}")
+
+        # 6. Instrument FastAPI app if provided
         if app is not None:
             try:
                 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -112,15 +155,13 @@ def init_telemetry(app=None) -> bool:
                 logger.warning(f"FastAPI instrumentation warning: {e}")
 
         _TELEMETRY_INITIALIZED = True
-        print(f"INFO: [Telemetry] ✅ Arize / Phoenix OpenTelemetry tracing initialized (exporting to {collector_endpoint}).", flush=True)
-        logger.info(f"✅ Arize / Phoenix OpenTelemetry tracing initialized (exporting to {collector_endpoint}).")
         return True
 
     except ImportError as exc:
         logger.warning(f"Arize / OpenTelemetry packages not installed ({exc}). Telemetry disabled.")
         return False
     except Exception as exc:
-        logger.error(f"Failed to initialize Arize / Phoenix telemetry: {exc}", exc_info=True)
+        logger.error(f"Failed to initialize Arize telemetry: {exc}", exc_info=True)
         return False
 
 

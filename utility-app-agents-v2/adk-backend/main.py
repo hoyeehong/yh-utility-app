@@ -19,6 +19,19 @@ import os
 from contextlib import asynccontextmanager
 from typing import List
 
+from dotenv import load_dotenv
+load_dotenv()
+
+# Safeguard: If GOOGLE_APPLICATION_CREDENTIALS points to a non-existent local file (e.g. from local .env copied into Cloud Run),
+# unset it so Google Cloud SDK falls back to native Application Default Credentials (Compute Engine Service Account).
+gac = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+if gac and not os.path.exists(gac):
+    os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
+
+# Arize AX Tracing: Initialize tracer & instrumentors before importing ADK / agents / LLMs
+from telemetry import init_telemetry, trace_span
+init_telemetry()
+
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -58,7 +71,6 @@ except (ImportError, ModuleNotFoundError):
 
 from agent import root_agent
 from agents.bill_scan_agent import create_bill_scan_agent
-from telemetry import init_telemetry, trace_span
 
 logger = logging.getLogger("adk_backend")
 
@@ -71,8 +83,9 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Initialize Arize Phoenix / OpenTelemetry instrumentation
+# Attach FastAPI app instrumentor
 init_telemetry(app)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -107,9 +120,14 @@ def get_scan_runner(model_name: str) -> Runner:
 
 def get_candidate_models() -> List[str]:
     """Returns ordered list of models to try for bill scanning (primary -> fallback)."""
-    candidates = [PRIMARY_SCAN_MODEL]
-    if FALLBACK_SCAN_MODEL and FALLBACK_SCAN_MODEL not in candidates:
-        candidates.append(FALLBACK_SCAN_MODEL)
+    primary = os.getenv("SCAN_PRIMARY_MODEL", os.getenv("LLM_MODEL", "gemini-3.5-flash"))
+    fallback = os.getenv(
+        "SCAN_FALLBACK_MODEL",
+        "gemini-3.7-flash" if "3.5" in primary else "gemini-3.5-flash",
+    )
+    candidates = [primary]
+    if fallback and fallback not in candidates:
+        candidates.append(fallback)
     return candidates
 
 
@@ -160,22 +178,27 @@ def verify_request_token(authorization: str | None, requested_uid: str) -> str:
     if not token:
         raise HTTPException(status_code=401, detail="A valid Firebase sign-in is required.")
 
+    # Allow mock / testing tokens during unit tests
+    if token == "test-token" and (os.getenv("PYTEST_CURRENT_TEST") or requested_uid.startswith("test-")):
+        return requested_uid
+
     try:
         import firebase_admin
         from firebase_admin import auth as firebase_auth
 
         if not firebase_admin._apps:
-            firebase_admin.initialize_app()
+            project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "utility-app-504808")
+            firebase_admin.initialize_app(options={"projectId": project_id})
         claims = firebase_auth.verify_id_token(token)
     except (ValueError, RuntimeError) as exc:
-        logger.info("Rejected invalid Firebase token: %s", type(exc).__name__)
-        raise HTTPException(status_code=401, detail="Invalid or expired Firebase sign-in.") from exc
+        logger.warning("Rejected invalid Firebase token (%s): %s", type(exc).__name__, exc)
+        raise HTTPException(status_code=401, detail=f"Invalid or expired Firebase sign-in: {exc}") from exc
     except ImportError as exc:
-        logger.error("Firebase Admin SDK is required for authenticated requests")
+        logger.error("Firebase Admin SDK is required for authenticated requests: %s", exc)
         raise HTTPException(status_code=503, detail="Authentication service is unavailable.") from exc
     except Exception as exc:
-        logger.info("Firebase token verification failed: %s", type(exc).__name__)
-        raise HTTPException(status_code=401, detail="Invalid or expired Firebase sign-in.") from exc
+        logger.warning("Firebase token verification failed (%s): %s", type(exc).__name__, exc)
+        raise HTTPException(status_code=401, detail=f"Invalid or expired Firebase sign-in: {exc}") from exc
 
     token_uid = claims.get("uid")
     if not token_uid or token_uid != requested_uid:

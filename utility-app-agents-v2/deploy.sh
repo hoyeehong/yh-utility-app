@@ -63,9 +63,8 @@ gcloud artifacts repositories create "${GAR_REPO}" \
   --project="${GOOGLE_CLOUD_PROJECT}" \
   --quiet
 
-# ── Step 2: Authenticate Docker with Artifact Registry ───────────────────────
-log "2/6 — Configuring Docker → Artifact Registry auth"
-gcloud auth configure-docker "${GAR_HOST}" --quiet
+# ── Step 2: Skip local Docker auth (Cloud Build handles auth natively) ────────
+log "2/6 — Skipping local Docker auth (Cloud Build builds remotely in GCP)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BACKEND
@@ -99,6 +98,15 @@ EOF
   [ -n "${OPENAI_API_KEY:-}" ] && ENV_VARS="${ENV_VARS},OPENAI_API_KEY=${OPENAI_API_KEY}"
   [ -n "${GROQ_API_KEY:-}" ] && ENV_VARS="${ENV_VARS},GROQ_API_KEY=${GROQ_API_KEY}"
   [ -n "${OPENROUTER_API_KEY:-}" ] && ENV_VARS="${ENV_VARS},OPENROUTER_API_KEY=${OPENROUTER_API_KEY}"
+  [ -n "${SCAN_PRIMARY_MODEL:-}" ] && ENV_VARS="${ENV_VARS},SCAN_PRIMARY_MODEL=${SCAN_PRIMARY_MODEL}"
+  [ -n "${SCAN_FALLBACK_MODEL:-}" ] && ENV_VARS="${ENV_VARS},SCAN_FALLBACK_MODEL=${SCAN_FALLBACK_MODEL}"
+  [ -n "${ENABLE_ARIZE_OBSERVABILITY:-}" ] && ENV_VARS="${ENV_VARS},ENABLE_ARIZE_OBSERVABILITY=${ENABLE_ARIZE_OBSERVABILITY}"
+  [ -n "${ARIZE_API_KEY:-}" ] && ENV_VARS="${ENV_VARS},ARIZE_API_KEY=${ARIZE_API_KEY}"
+  [ -n "${ARIZE_SPACE_ID:-}" ] && ENV_VARS="${ENV_VARS},ARIZE_SPACE_ID=${ARIZE_SPACE_ID}"
+  [ -n "${ARIZE_SPACE_KEY:-}" ] && ENV_VARS="${ENV_VARS},ARIZE_SPACE_KEY=${ARIZE_SPACE_KEY}"
+  [ -n "${ARIZE_PROJECT_NAME:-}" ] && ENV_VARS="${ENV_VARS},ARIZE_PROJECT_NAME=${ARIZE_PROJECT_NAME}"
+  [ -n "${ARIZE_OTLP_ENDPOINT:-}" ] && ENV_VARS="${ENV_VARS},ARIZE_OTLP_ENDPOINT=${ARIZE_OTLP_ENDPOINT}"
+  [ -n "${PHOENIX_COLLECTOR_ENDPOINT:-}" ] && ENV_VARS="${ENV_VARS},PHOENIX_COLLECTOR_ENDPOINT=${PHOENIX_COLLECTOR_ENDPOINT}"
 
   gcloud run deploy "${BACKEND_SERVICE_NAME}" \
     --image "${BACKEND_IMAGE}" \
@@ -187,7 +195,7 @@ EOF
     --port 3000 \
     --memory 512Mi \
     --cpu 1 \
-    --timeout 60 \
+    --timeout 300 \
     --concurrency 100 \
     --min-instances 0 \
     --max-instances 10 \
