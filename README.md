@@ -23,7 +23,7 @@ yh-utility-app/
 
 | Feature | [utility-app-static-v1](./utility-app-static-v1/) | [utility-app-agents-v2](./utility-app-agents-v2/) |
 | :--- | :--- | :--- |
-| **Live URL** | [yh-utility-app-static-v1.vercel.app](https://yh-utility-app-static-v1.vercel.app) | [utility-frontend-294296399024.asia-southeast1.run.app](https://utility-frontend-294296399024.asia-southeast1.run.app) |
+| **Live URL** | [utility-app-static-v1.vercel.app](https://utility-app-static-v1.vercel.app) | [utility-frontend-294296399024.asia-southeast1.run.app](https://utility-frontend-294296399024.asia-southeast1.run.app) |
 | **Release Type** | Legacy Baseline (v1.0) | Production Microservices (v2.0) |
 | **Architecture** | Single-tier static Next.js app | Two-tier: Next.js frontend + Python ADK backend |
 | **Authentication & Storage** | Supabase Auth & Storage | Firebase Cloud SSO & Cloud Firestore / Storage |
