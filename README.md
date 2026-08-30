@@ -15,7 +15,7 @@ yh-utility-app/
 ## 🚀 Live Deployments
 
 - **v2 (Current - Multi-Agent & OCR):** [https://utility-frontend-294296399024.asia-southeast1.run.app](https://utility-frontend-294296399024.asia-southeast1.run.app)
-- **v1 (Legacy - Static App):** [https://yh-utility-app-static-v1.vercel.app](https://yh-utility-app-static-v1.vercel.app)
+- **v1 (Legacy - Static App):** [https://utility-app-static-v1.vercel.app](https://utility-app-static-v1.vercel.app)
 
 ---
 
